@@ -20,14 +20,30 @@ install_ffmpeg_macos() {
 install_ffmpeg_ubuntu() {
   need_command "apt-get" "This setup script supports Ubuntu/Debian apt-get for Linux installs."
 
-  if [ "$(id -u)" -eq 0 ]; then
-    apt-get update
-    apt-get install -y ffmpeg
-  else
-    need_command "sudo" "Install sudo or run this script as root."
-    sudo apt-get update
-    sudo apt-get install -y ffmpeg
+  run_apt_get() {
+    if [ "$(id -u)" -eq 0 ]; then
+      apt-get "$@"
+    else
+      need_command "sudo" "Install sudo or run this script as root."
+      sudo apt-get "$@"
+    fi
+  }
+
+  if ! run_apt_get update; then
+    cat >&2 <<'EOF'
+apt-get update failed before FFmpeg could be installed.
+
+This usually means one of the system's configured apt repositories is broken.
+Fix or disable the failing entry under /etc/apt/sources.list or
+/etc/apt/sources.list.d, then rerun ./setup.sh.
+
+Look for apt output lines beginning with "Err:" and messages such as
+"NO_PUBKEY", "404 Not Found", or "does not have a Release file".
+EOF
+    exit 1
   fi
+
+  run_apt_get install -y ffmpeg
 }
 
 if command -v ffmpeg >/dev/null 2>&1 && command -v ffprobe >/dev/null 2>&1; then
