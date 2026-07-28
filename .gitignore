@@ -1,3 +1,6 @@
 bin/
 *.flac
 *.mpa
+*.m4a
+*.mp3
+scratch/

@@ -7,13 +7,13 @@ export PATH="${SCRIPT_DIR}/bin:${HOME}/.local/bin:${PATH}"
 usage() {
   cat <<'EOF'
 Usage:
-  ./extract.sh [options] input-video [output-audio.mpa]
+  ./extract.sh [options] input-video [output-audio.m4a]
 
 Extract the selected audio stream, analyze loudness, normalize for playback,
-and save audio as MPA (default) or FLAC.
+and save audio as M4A (default), MP3, FLAC, or MPA.
 
 Options:
-  -o, --output PATH       Output path. Defaults to input basename + .mpa
+  -o, --output PATH       Output path. Defaults to input basename + .m4a
   -s, --stream INDEX      Audio stream index. Defaults to 0
   --target-lufs VALUE     Target integrated loudness. Defaults to -16
   --true-peak VALUE       Target true peak. Defaults to -1.5
@@ -23,7 +23,7 @@ Options:
 
 Examples:
   ./extract.sh movie.mp4
-  ./extract.sh movie.mkv audio.mpa
+  ./extract.sh movie.mkv audio.m4a
   ./extract.sh --stream 1 --target-lufs -18 -o voice.flac movie.mov
 EOF
 }
@@ -158,16 +158,58 @@ case "$sample_rate" in
     ;;
 esac
 
+input_codec="$(
+  ffprobe -v error \
+    -select_streams "a:${stream_index}" \
+    -show_entries stream=codec_name \
+    -of default=noprint_wrappers=1:nokey=1 \
+    "$input" | sed -n '1p'
+)"
+
+is_lossless="false"
+case "$input_codec" in
+  pcm_*|flac|alac|wavpack|ape|tta|mlp|truehd|shn|shorten|tak|wmalossless|dsd_*)
+    is_lossless="true"
+    ;;
+  *)
+    is_lossless="false"
+    ;;
+esac
+
 if [ -z "$output" ]; then
   input_dir="$(dirname "$input")"
   input_name="$(basename "$input")"
-  output="${input_dir}/${input_name%.*}.mpa"
+  output="${input_dir}/${input_name%.*}.m4a"
 fi
 
 ext="${output##*.}"
 ext_lower="$(printf '%s' "$ext" | tr '[:upper:]' '[:lower:]')"
 
 case "$ext_lower" in
+  m4a)
+    if [ "$is_lossless" = "true" ]; then
+      format_name="M4A (ALAC)"
+      codec_args=(-c:a alac)
+    else
+      format_name="M4A (AAC)"
+      codec_args=(-c:a aac)
+    fi
+    ;;
+  mp3)
+    format_name="MP3"
+    codec_args=(-c:a libmp3lame -q:a 2)
+    case "$sample_rate" in
+      8000|11025|12000|16000|22050|24000|32000|44100|48000)
+        ;;
+      *)
+        sample_rate=""
+        ;;
+    esac
+    ;;
+  flac)
+    format_name="FLAC"
+    codec_args=(-c:a flac -compression_level 8)
+    ;;
   mpa)
     format_name="MPA"
     codec_args=(-c:a mp2)
@@ -179,12 +221,8 @@ case "$ext_lower" in
         ;;
     esac
     ;;
-  flac)
-    format_name="FLAC"
-    codec_args=(-c:a flac -compression_level 8)
-    ;;
   *)
-    fail "Output must use .mpa or .flac extension: $output"
+    fail "Output must use .m4a, .mp3, .flac, or .mpa extension: $output"
     ;;
 esac
 
