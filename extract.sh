@@ -7,13 +7,13 @@ export PATH="${SCRIPT_DIR}/bin:${HOME}/.local/bin:${PATH}"
 usage() {
   cat <<'EOF'
 Usage:
-  ./extract.sh [options] input-video [output-audio.flac]
+  ./extract.sh [options] input-video [output-audio.mpa]
 
 Extract the selected audio stream, analyze loudness, normalize for playback,
-and save lossless FLAC audio.
+and save audio as MPA (default) or FLAC.
 
 Options:
-  -o, --output PATH       Output path. Defaults to input basename + .flac
+  -o, --output PATH       Output path. Defaults to input basename + .mpa
   -s, --stream INDEX      Audio stream index. Defaults to 0
   --target-lufs VALUE     Target integrated loudness. Defaults to -16
   --true-peak VALUE       Target true peak. Defaults to -1.5
@@ -23,7 +23,7 @@ Options:
 
 Examples:
   ./extract.sh movie.mp4
-  ./extract.sh movie.mkv audio.flac
+  ./extract.sh movie.mkv audio.mpa
   ./extract.sh --stream 1 --target-lufs -18 -o voice.flac movie.mov
 EOF
 }
@@ -161,14 +161,30 @@ esac
 if [ -z "$output" ]; then
   input_dir="$(dirname "$input")"
   input_name="$(basename "$input")"
-  output="${input_dir}/${input_name%.*}.flac"
+  output="${input_dir}/${input_name%.*}.mpa"
 fi
 
-case "${output##*.}" in
-  flac|FLAC)
+ext="${output##*.}"
+ext_lower="$(printf '%s' "$ext" | tr '[:upper:]' '[:lower:]')"
+
+case "$ext_lower" in
+  mpa)
+    format_name="MPA"
+    codec_args=(-c:a mp2)
+    case "$sample_rate" in
+      16000|22050|24000|32000|44100|48000)
+        ;;
+      *)
+        sample_rate=""
+        ;;
+    esac
+    ;;
+  flac)
+    format_name="FLAC"
+    codec_args=(-c:a flac -compression_level 8)
     ;;
   *)
-    fail "Output must use .flac for lossless FLAC audio: $output"
+    fail "Output must use .mpa or .flac extension: $output"
     ;;
 esac
 
@@ -215,15 +231,14 @@ printf '  Loudness range:      %s LU\n' "$lra"
 
 filter="loudnorm=I=${target_lufs}:TP=${true_peak}:LRA=${lra}:measured_I=${input_i}:measured_TP=${input_tp}:measured_LRA=${input_lra}:measured_thresh=${input_thresh}:offset=${target_offset}:linear=true:print_format=summary"
 
-printf 'Saving normalized lossless FLAC: %s\n' "$output"
+printf 'Saving normalized %s audio: %s\n' "$format_name" "$output"
 ffmpeg_args=(
   "$overwrite" -hide_banner
   -i "$input"
   -map "0:a:${stream_index}"
   -vn -sn -dn
   -af "$filter"
-  -c:a flac
-  -compression_level 8
+  "${codec_args[@]}"
 )
 
 if [ -n "$sample_rate" ]; then
